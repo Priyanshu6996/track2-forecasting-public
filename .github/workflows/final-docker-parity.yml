@@ -51,9 +51,12 @@ jobs:
             --tag "$LOCAL_IMAGE" .
       - name: Verify image contract
         run: |
-          test "$(docker image inspect "$LOCAL_IMAGE" --format '{{.Architecture}}')" = "amd64"
-          test "$(docker image inspect "$LOCAL_IMAGE" --format '{{ index .Config.Labels \"qfbench2.interface_version\" }}')" = "2.0"
+          architecture="$(docker image inspect "$LOCAL_IMAGE" --format '{{.Architecture}}')"
+          interface_version="$(docker image inspect "$LOCAL_IMAGE" --format '{{ index .Config.Labels "qfbench2.interface_version" }}')"
           volumes="$(docker image inspect "$LOCAL_IMAGE" --format '{{json .Config.Volumes}}')"
+          printf 'architecture=%s\ninterface_version=%s\nvolumes=%s\n' "$architecture" "$interface_version" "$volumes"
+          test "$architecture" = "amd64"
+          test "$interface_version" = "2.0"
           test "$volumes" = "null" || test "$volumes" = "{}"
           docker run --rm "$LOCAL_IMAGE" forecast --help
       - name: Run offline Track 2 exemplar
