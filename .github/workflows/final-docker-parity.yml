@@ -1,0 +1,114 @@
+# Executive summary (read this first)
+#
+# This workflow validates the frozen Edge-X Final Docker remediation on a
+# Linux/AMD64 GitHub runner.  A normal push never contacts Docker Hub.  The
+# optional publish job is manual, requires private repository secrets, refuses
+# an existing tag, and is restricted to the reviewed source commit below.
+name: Edge-X Final Docker parity
+
+on:
+  push:
+    branches: ["codex/final-docker-parity"]
+  workflow_dispatch:
+    inputs:
+      publish_image:
+        description: "Publish the already-validated image after configuring Docker Hub secrets"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_COMMIT: 54c3904a57e750b4cafd8cac5b1fcaaa99515466
+  IMAGE_REPOSITORY: docker.io/ps2006/agenthon-t2
+  IMAGE_TAG: final-candidate-54c3904a57e7
+  LOCAL_IMAGE: edge-x-final-candidate:54c3904a57e7
+
+jobs:
+  validate:
+    name: Build and validate Linux/AMD64 image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+        with:
+          python-version: "3.13"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Verify the reviewed forecasting source is unchanged
+        run: |
+          git diff --exit-code "$SOURCE_COMMIT" -- src/track2_agent tests
+      - name: Install pinned validation environment
+        run: python -m pip install -e ".[test]"
+      - name: Run complete candidate suite
+        run: python -m pytest
+      - name: Build the pinned Linux/AMD64 image
+        run: |
+          docker buildx build --platform linux/amd64 --load \
+            --tag "$LOCAL_IMAGE" .
+      - name: Verify image contract
+        run: |
+          test "$(docker image inspect "$LOCAL_IMAGE" --format '{{.Architecture}}')" = "amd64"
+          test "$(docker image inspect "$LOCAL_IMAGE" --format '{{ index .Config.Labels \"qfbench2.interface_version\" }}')" = "2.0"
+          volumes="$(docker image inspect "$LOCAL_IMAGE" --format '{{json .Config.Volumes}}')"
+          test "$volumes" = "null" || test "$volumes" = "{}"
+          docker run --rm "$LOCAL_IMAGE" forecast --help
+      - name: Run offline Track 2 exemplar
+        run: |
+          mkdir -p output-docker-exemplar
+          docker run --rm --network=none \
+            --mount type=bind,src="$GITHUB_WORKSPACE/units/t2-EXAMPLE-ust-curve-1m",dst=/input,readonly \
+            --mount type=bind,src="$GITHUB_WORKSPACE/output-docker-exemplar",dst=/output \
+            "$LOCAL_IMAGE" forecast --panels /input/panels --text /input/text \
+              --asof 2024-06-28 --out /output/forecast.parquet
+          test -s output-docker-exemplar/forecast.parquet
+          test -s output-docker-exemplar/forecast_meta.json
+          test -s output-docker-exemplar/forecast_rationale.md
+      - name: Run documented public gates
+        run: |
+          python scoring/scoring.py score \
+            --card units/t2-EXAMPLE-ust-curve-1m/card.toml \
+            --forecast output-docker-exemplar/forecast.parquet
+          qfbench2-smoke units/t2-EXAMPLE-ust-curve-1m output-docker-exemplar --track forecasting
+
+  publish:
+    name: Publish validated immutable image
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Verify only workflow material follows the reviewed source commit
+        run: |
+          git diff --exit-code "$SOURCE_COMMIT" -- Dockerfile pyproject.toml src tests
+      - name: Refuse to overwrite an existing public tag
+        run: |
+          token="$(curl -fsSL 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:ps2006/agenthon-t2:pull' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+          if curl -fsSI -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+              "https://registry-1.docker.io/v2/ps2006/agenthon-t2/manifests/$IMAGE_TAG" | grep -q ' 200 '; then
+            echo "refusing to overwrite existing tag $IMAGE_TAG" >&2
+            exit 1
+          fi
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and publish Linux/AMD64 image
+        run: |
+          docker buildx build --platform linux/amd64 --push \
+            --tag "$IMAGE_REPOSITORY:$IMAGE_TAG" .
+      - name: Verify anonymous digest pullability
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:$IMAGE_TAG" --format '{{.Digest}}')"
+          test -n "$digest"
+          token="$(curl -fsSL 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:ps2006/agenthon-t2:pull' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "https://registry-1.docker.io/v2/ps2006/agenthon-t2/manifests/$digest")"
+          test "$code" = "200"
+          echo "published_image=$IMAGE_REPOSITORY@$digest"
