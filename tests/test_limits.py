@@ -196,13 +196,20 @@ def test_symlink_is_refused_without_being_followed(tmp_path: pathlib.Path) -> No
     target = tmp_path / "elsewhere.json"
     target.write_text("{}", encoding="utf-8")
     link = tmp_path / "forecast_meta.json"
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        # Windows without Developer Mode or the symlink privilege cannot construct this fixture.
+        # The production image is Linux, where the refusal path remains covered.
+        pytest.skip(f"symlink fixture unavailable on this host: {exc}")
     with pytest.raises(T2Refusal) as exc:
         stat_regular_file(link, required=True, what="forecast_meta.json", max_bytes=4096)
     assert exc.value.detail["rejected_node_count"] == 1
 
 
 def test_fifo_is_refused(tmp_path: pathlib.Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO fixtures are not available on Windows")
     path = tmp_path / "forecast_meta.json"
     os.mkfifo(path)
     with pytest.raises(T2Refusal) as exc:
