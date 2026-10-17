@@ -62,6 +62,10 @@ jobs:
       - name: Run offline Track 2 exemplar
         run: |
           mkdir -p output-docker-exemplar
+          # The image intentionally runs as non-root.  Make this disposable
+          # host-side bind mount writable by that container user, as required
+          # by the Final /output contract.
+          chmod 0777 output-docker-exemplar
           docker run --rm --network=none \
             --mount type=bind,src="$GITHUB_WORKSPACE/units/t2-EXAMPLE-ust-curve-1m",dst=/input,readonly \
             --mount type=bind,src="$GITHUB_WORKSPACE/output-docker-exemplar",dst=/output \
