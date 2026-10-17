@@ -13,7 +13,10 @@
 # through the organizer's audited proxy only ($MODEL_ENDPOINT / $MODEL_NAME / $HTTP_PROXY set by
 # the harness); no vendor API key exists and none is baked into this image.
 
-FROM python:3.11-slim-bookworm
+# Python 3.13 is required by qfbench2-common v2.6.1.  This digest is the
+# linux/amd64 child manifest for python:3.13-slim-bookworm, verified against
+# Docker Hub on 2026-10-17.  The base config declares no Docker VOLUME.
+FROM python:3.13-slim-bookworm@sha256:f040863673aea2570c3ff6a5c3fb4c673a016cbc5375005ad145915922b6b78a
 
 LABEL qfbench2.interface_version="2.0"
 LABEL qfbench2.track="forecasting"
@@ -25,15 +28,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /work
 
-# Pinned, matching pyproject.toml's floors. Pinning here (not just in pyproject) is what makes a
-# rebuild reproducible byte-for-byte in the dependency graph, independent of PyPI's current
-# resolver state on the day of the build.
-RUN pip install --no-cache-dir \
-        "numpy==1.26.4" \
-        "pandas==2.2.2" \
-        "pyarrow==16.1.0" \
-        "scikit-learn==1.4.2" \
-        "jsonschema==4.22.0"
+# Git is required only while building because the shared toolkit is installed
+# from its immutable public source commit.  All forecast and validation
+# dependencies are installed at build time; the runtime never installs code.
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y git \
+ && pip install --no-cache-dir \
+        "numpy==2.5.4" \
+        "pandas==3.0.6" \
+        "pyarrow==26.0.0" \
+        "scikit-learn==1.9.1" \
+        "jsonschema==4.26.0" \
+        "scipy==1.18.1" \
+        "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@03c50a0036aaf72675d353aef4c7c01ca86d1fcf#subdirectory=common" \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY src/track2_agent /opt/track2_agent
 ENV PYTHONPATH=/opt

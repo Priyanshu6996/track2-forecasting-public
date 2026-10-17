@@ -6,17 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "track2-agent"
 version = "1.0.0"
 description = "Agenthon 2026 Track 2 submission: numeric + LLM-text reasoning forecaster."
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
-  "numpy>=1.26",
-  "pandas>=2.2",
-  "pyarrow>=15",
-  "scikit-learn>=1.4",
-  "jsonschema>=4.21",
+  "numpy==2.5.4",
+  "pandas==3.0.6",
+  "pyarrow==26.0.0",
+  "scikit-learn==1.9.1",
+  "jsonschema==4.26.0",
+  "scipy==1.18.1",
   # The shared toolkit owns all official scoring and admissibility math.  The local smoke
   # command imports qfbench2_track_forecasting, so this must be a declared installation-time
   # dependency rather than an accidental consequence of running tests from the repository root.
-  "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common",
+  "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@03c50a0036aaf72675d353aef4c7c01ca86d1fcf#subdirectory=common",
 ]
 
 [project.optional-dependencies]
